@@ -1,0 +1,16 @@
+# The smallest function: a hand-written WebAssembly module that exits 0.
+# Build:  see README.md in this folder.
+apiVersion: kmplify.app/v1
+id: kmplify-examples/hello-function
+version: 0.1.0
+lane: function
+artifact:
+  wasm:
+    path: hello.wasm
+resources:
+  mem_mb: 16
+limits:
+  max_runtime_s: 5
+data_class: none
+pricing:
+  model: free
