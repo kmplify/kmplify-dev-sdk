@@ -70,3 +70,13 @@ cargo test          # unit tests, schema agreement, end-to-end CLI tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
+
+## Security
+
+The SDK is open on purpose: see [SECURITY.md](SECURITY.md) for why that is safe
+and for how to report a vulnerability privately.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Apps you build
+with the SDK are yours and may carry any license you choose.
