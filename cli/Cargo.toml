@@ -3,7 +3,7 @@ name = "kmplify-cli"
 version = "0.1.0"
 edition = "2021"
 description = "KMPLIFY developer CLI: scaffold, validate, sign and verify serverless apps (kmplify.app/v1)"
-license = "LicenseRef-KMPLIFY-Proprietary"
+license = "Apache-2.0"
 publish = false
 
 [[bin]]
