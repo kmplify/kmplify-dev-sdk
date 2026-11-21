@@ -1,0 +1,30 @@
+# A container app with one declared outbound host.
+# The digest below is an EXAMPLE value, not a published image: replace it with
+# the digest of your own image (docker buildx imagetools inspect <image>).
+apiVersion: kmplify.app/v1
+id: kmplify-examples/hello-container
+version: 0.1.0
+lane: container
+artifact:
+  image: registry.kmplify.io/kmplify-examples/hello-container@sha256:1111111111111111111111111111111111111111111111111111111111111111
+resources:
+  cpus: 1
+  mem_mb: 512
+isolation: gvisor
+network:
+  mode: egress
+  allow:
+    - api.example.com:443
+permissions:
+  - dws.kv
+entrypoint:
+  port: 8080
+  health: /healthz
+  ready_timeout_s: 60
+limits:
+  max_runtime_s: 900
+  max_concurrency: 4
+data_class: personal
+pricing:
+  model: per_run
+  price_cents: 5
