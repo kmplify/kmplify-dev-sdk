@@ -44,5 +44,14 @@ person at KMPLIFY has reviewed that version and the Community publisher key
 has countersigned it. If an app turns out to be harmful, KMPLIFY can revoke
 it on every node at once.
 
+## The app's unique ID
+
+KMPLIFY gives every app one unique ID of 32 lowercase hex characters when you
+first submit it. It stays the same for every later version, is never reused,
+and is part of what the Community publisher key signs, so it cannot be moved
+to another app. `publisher/name` is what people read; the unique ID is what
+support, the audit records and a revocation refer to. You do not put it in the
+manifest.
+
 `kmplify app verify <file> --pubkey <hex>` checks who signed. Without
 `--pubkey` it only proves the envelope was not altered.
