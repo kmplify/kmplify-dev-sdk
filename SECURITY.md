@@ -18,8 +18,8 @@ elsewhere:
 - A published app can be revoked on every node at any time.
 
 Your own signing key stays on your machine, in `~/.config/kmplify/keys` with
-owner-only permissions. Never commit it. If it leaks, revoke it in the
-developer console and create a new one.
+owner-only permissions. Never commit it. If it leaks, report it as
+described below so it can be revoked, and create a new one.
 
 ## What must never be committed here
 
