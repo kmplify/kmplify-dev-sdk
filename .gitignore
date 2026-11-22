@@ -1,0 +1,4 @@
+target/
+*.key
+kmplify.app.signed.json
+.env
