@@ -46,6 +46,7 @@ pricing: {model: per_run, price_cents: 5}
 | `requirements` | no | what a person's own computer needs, and what the app downloads. See [Requirements and size](#requirements-and-size) |
 | `isolation` | no | the weakest sandbox the app accepts. Default `wasm` for a function, `gvisor` for a container. A container can never go below `gvisor` |
 | `network` | no | default: no network. `egress` needs every `host:port` listed |
+| `filesystem` | no | official KMPLIFY apps only, see below |
 | `permissions` | no | platform services the app may use, each limited to the app's own namespace: `dws.kv`, `dws.bucket`, `dws.queue`, `dws.secrets`. Containers only |
 | `platforms` | no | where people can use the app: `desktop` (KMPLIFY Desktop), `web` (the web app), `mobile`. Default: `desktop` and `web`. The marketplace offers the app only for the devices named here, and a person chooses which of them to add it to |
 | `data_class` | no | `none`, `personal` or `document`. Decides which nodes may host the app |
@@ -100,3 +101,22 @@ stdin, stdout, stderr and argv. No files, no sockets, no environment
 variables. Read the input from stdin, write the result to stdout, exit 0.
 Any toolchain that produces a `wasm32-wasip1` command module works: Rust, C,
 Zig, TinyGo, AssemblyScript.
+
+## Official KMPLIFY apps (reserved handle `kmplify`)
+
+KMPLIFY publishes its curated Peer Compute templates (vLLM, ComfyUI, Ollama,
+Speech, ...) as serverless apps under the reserved handle `kmplify`. Their
+manifests say exactly how the gateway template runs them, which no other app
+may declare:
+
+- `isolation: container`: a plain container, no gvisor.
+- `network.mode: egress_unrestricted`: outbound traffic to any host, without
+  an allow list. A node may lower it.
+- `filesystem: {read_only, tmpfs}`: the container's root file system.
+
+`kmplify validate` accepts these three only for ids under `kmplify/`. That
+proves nothing by itself: the marketplace accepts such a manifest only from
+the account that holds the handle `kmplify`, and refuses the handle to
+everyone else. Every other app keeps gvisor at least and egress only to listed
+hosts.
+
