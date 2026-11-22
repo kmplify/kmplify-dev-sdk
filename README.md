@@ -75,26 +75,18 @@ kmplify app verify my-app/kmplify.app.signed.json --pubkey "$(kmplify keys show)
 ## How it works
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph you["On your computer"]
-        direction LR
-        A["Build<br/>wasm32-wasip1 module<br/>or OCI image"] --> B["kmplify app sign<br/>with your key"]
+        A["Build<br/>Wasm module<br/>or OCI image"] --> B["kmplify<br/>app sign"]
     end
     subgraph mp["marketplace.kmplify.ai"]
-        direction LR
-        C["Hand in<br/>Settings › Your apps"] --> D["Review<br/>a person, first in first out"]
-        D -->|approved| E["Countersigned by KMPLIFY<br/>draft listing"]
-        E --> F["Make public<br/>Your listings"]
-        D -->|not approved| R["Reason shown<br/>on Your apps"]
-    end
-    subgraph run["Where people run it"]
-        direction LR
-        G["KMPLIFY network"]
-        H["KMPLIFY Desktop, offline"]
-        I["Web app"]
+        C["Hand in<br/>Your apps"] --> D["Review<br/>by a person"]
+        D -->|approved| E["Countersigned<br/>draft listing"]
+        E --> F["Make<br/>public"]
+        D -.->|not approved| R["Reason on<br/>Your apps"]
     end
     B --> C
-    F --> G & H & I
+    F --> G(["Run it<br/>KMPLIFY network<br/>Desktop offline · web app"])
 ```
 
 1. **Register once.** Sign in on [marketplace.kmplify.ai](https://marketplace.kmplify.ai),
