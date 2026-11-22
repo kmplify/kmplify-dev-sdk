@@ -151,6 +151,10 @@ pub struct Manifest {
     pub network: Option<Network>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<String>,
+    /// Where people can use the app: `desktop`, `web`, `mobile`. Empty means
+    /// the default, desktop and web.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub platforms: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_class: Option<DataClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,6 +179,8 @@ impl fmt::Display for Problem {
 }
 
 const PERMISSIONS: &[&str] = &["dws.kv", "dws.bucket", "dws.queue", "dws.secrets"];
+/// The apps a serverless app can appear in.
+pub const PLATFORMS: &[&str] = &["desktop", "mobile", "web"];
 
 impl Manifest {
     pub fn from_yaml(text: &str) -> Result<Self, String> {
@@ -350,6 +356,17 @@ impl Manifest {
                     "permissions",
                     format!("unknown permission {p}; known: {}", PERMISSIONS.join(", ")),
                 );
+            }
+        }
+
+        for (i, p) in self.platforms.iter().enumerate() {
+            if !PLATFORMS.contains(&p.as_str()) {
+                bad(
+                    "platforms",
+                    format!("unknown platform {p}; known: {}", PLATFORMS.join(", ")),
+                );
+            } else if self.platforms[..i].contains(p) {
+                bad("platforms", format!("{p} is listed twice"));
             }
         }
 
@@ -529,6 +546,17 @@ mod tests {
         assert_eq!(fields(&m), vec!["isolation"]);
         m.isolation = Some(Isolation::Microvm);
         assert_eq!(m.validate(), vec![]);
+    }
+
+    #[test]
+    fn platforms_are_known_and_named_once() {
+        let mut m = container();
+        m.platforms = vec!["desktop".into(), "mobile".into(), "web".into()];
+        assert_eq!(m.validate(), vec![]);
+        m.platforms = vec!["desktop".into(), "watch".into()];
+        assert_eq!(fields(&m), vec!["platforms"]);
+        m.platforms = vec!["web".into(), "web".into()];
+        assert_eq!(fields(&m), vec!["platforms"]);
     }
 
     #[test]
