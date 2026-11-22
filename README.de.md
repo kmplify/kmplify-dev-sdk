@@ -75,17 +75,20 @@ Beispiel, `acme/word-count`, Schritt für Schritt mit Screenshots.
 ## So funktioniert es
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph you["Auf eurem Rechner"]
+        direction LR
         A["Bauen<br/>wasm32-wasip1-Modul<br/>oder OCI-Image"] --> B["kmplify app sign<br/>mit eurem Schlüssel"]
     end
     subgraph mp["marketplace.kmplify.ai"]
+        direction LR
         C["Einreichen<br/>Einstellungen › Ihre Apps"] --> D["Prüfung<br/>ein Mensch, nach Eingang"]
         D -->|freigegeben| E["Von KMPLIFY gegengezeichnet<br/>Entwurf im Marktplatz"]
         E --> F["Öffentlich machen<br/>Ihre Einträge"]
         D -->|nicht freigegeben| R["Begründung<br/>unter Ihre Apps"]
     end
     subgraph run["Wo Menschen sie ausführen"]
+        direction LR
         G["KMPLIFY-Netzwerk"]
         H["KMPLIFY Desktop, offline"]
         I["Web-App"]
