@@ -61,6 +61,35 @@
         }
       }
     },
+    "requirements": {
+      "description": "What a person's own computer needs to use the app, and what the app downloads. Shown on the marketplace and compared with the device ('fits this device'). `resources` is what the sandbox is given; this is what the computer must have.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": { "type": "array", "uniqueItems": true, "items": { "enum": ["linux", "macos", "windows"] } },
+        "gpu": { "description": "GPU vendors the app works with. Left out: no GPU needed.", "type": "array", "uniqueItems": true, "items": { "enum": ["nvidia", "amd", "intel", "apple"] } },
+        "min_vram_mb": { "type": "integer", "minimum": 512, "maximum": 393216 },
+        "min_ram_mb": { "type": "integer", "minimum": 16, "maximum": 4194304 },
+        "min_disk_mb": { "description": "At least what `contents` adds up to.", "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "min_cpu_threads": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "contents": {
+          "description": "What the app brings or fetches: models, datasets, libraries, modules. Their sizes add up to the download size people see.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "size_mb"],
+            "properties": {
+              "kind": { "enum": ["model", "dataset", "library", "module", "weights", "image", "other"] },
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "size_mb": { "type": "integer", "minimum": 0, "maximum": 2097152 },
+              "fetched": { "description": "bundled (part of the artifact, the default) or on_first_run.", "enum": ["bundled", "on_first_run"] }
+            }
+          }
+        }
+      }
+    },
     "isolation": {
       "description": "The weakest sandbox this app may run in. Third-party containers never run below gvisor.",
       "enum": ["wasm", "gvisor", "microvm"]

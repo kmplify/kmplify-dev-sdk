@@ -101,6 +101,49 @@ pub struct Resources {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Content {
+    /// model, dataset, library, module, weights, image or other.
+    pub kind: String,
+    pub name: String,
+    pub size_mb: u64,
+    /// bundled (part of the artifact) or on_first_run (fetched when the app
+    /// first starts). Left out: bundled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched: Option<String>,
+}
+
+/// What a person's own computer needs to use the app, and what it downloads.
+/// Shown on the marketplace and checked against the device ("fits this
+/// device"). Separate from `resources`, which is what the sandbox is given.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Requirements {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub os: Vec<String>,
+    /// GPU vendors the app works with. Empty: no GPU needed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gpu: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_vram_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_ram_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_disk_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_cpu_threads: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contents: Vec<Content>,
+}
+
+impl Requirements {
+    /// Everything the app brings or fetches, in MB.
+    pub fn contents_mb(&self) -> u64 {
+        self.contents.iter().map(|c| c.size_mb).sum()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Network {
     pub mode: NetworkMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -146,6 +189,8 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resources: Option<Resources>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirements: Option<Requirements>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub isolation: Option<Isolation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<Network>,
@@ -181,6 +226,17 @@ impl fmt::Display for Problem {
 const PERMISSIONS: &[&str] = &["dws.kv", "dws.bucket", "dws.queue", "dws.secrets"];
 /// The apps a serverless app can appear in.
 pub const PLATFORMS: &[&str] = &["desktop", "mobile", "web"];
+/// Operating systems a person's computer may need (requirements.os).
+pub const REQ_OS: &[&str] = &["linux", "macos", "windows"];
+/// GPU vendors (requirements.gpu).
+pub const REQ_GPU: &[&str] = &["nvidia", "amd", "intel", "apple"];
+/// What an app brings or fetches (requirements.contents[].kind).
+pub const CONTENT_KINDS: &[&str] = &[
+    "model", "dataset", "library", "module", "weights", "image", "other",
+];
+pub const MAX_CONTENTS: usize = 64;
+/// 2 TB per entry.
+pub const MAX_CONTENT_MB: u64 = 2_097_152;
 
 impl Manifest {
     pub fn from_yaml(text: &str) -> Result<Self, String> {
@@ -383,6 +439,112 @@ impl Manifest {
                 }
                 if g.accelerator.as_ref().is_some_and(|a| a != "cuda") {
                     bad("resources.gpu.accelerator", "only cuda is supported".into());
+                }
+            }
+        }
+
+        if let Some(q) = &self.requirements {
+            for (i, o) in q.os.iter().enumerate() {
+                if !REQ_OS.contains(&o.as_str()) {
+                    bad(
+                        "requirements.os",
+                        format!("unknown os {o}; known: {}", REQ_OS.join(", ")),
+                    );
+                } else if q.os[..i].contains(o) {
+                    bad("requirements.os", format!("{o} is listed twice"));
+                }
+            }
+            for (i, g) in q.gpu.iter().enumerate() {
+                if !REQ_GPU.contains(&g.as_str()) {
+                    bad(
+                        "requirements.gpu",
+                        format!("unknown GPU vendor {g}; known: {}", REQ_GPU.join(", ")),
+                    );
+                } else if q.gpu[..i].contains(g) {
+                    bad("requirements.gpu", format!("{g} is listed twice"));
+                }
+            }
+            if self.lane == Lane::Function && !q.gpu.is_empty() {
+                bad("requirements.gpu", "a function cannot use a GPU".into());
+            }
+            match q.min_vram_mb {
+                Some(_) if q.gpu.is_empty() => bad(
+                    "requirements.min_vram_mb",
+                    "name the GPU vendors in requirements.gpu first".into(),
+                ),
+                Some(v) if !(512..=393_216).contains(&v) => {
+                    bad("requirements.min_vram_mb", "must be 512..393216".into())
+                }
+                _ => {}
+            }
+            if let (Some(v), Some(g)) = (
+                q.min_vram_mb,
+                self.resources.as_ref().and_then(|r| r.gpu.as_ref()),
+            ) {
+                if v < g.min_vram_mb {
+                    bad(
+                        "requirements.min_vram_mb",
+                        format!("is below resources.gpu.min_vram_mb ({})", g.min_vram_mb),
+                    );
+                }
+            }
+            if q.min_ram_mb.is_some_and(|m| !(16..=4_194_304).contains(&m)) {
+                bad("requirements.min_ram_mb", "must be 16..4194304".into());
+            }
+            if q.min_cpu_threads.is_some_and(|t| !(1..=1024).contains(&t)) {
+                bad("requirements.min_cpu_threads", "must be 1..1024".into());
+            }
+            if q.contents.len() > MAX_CONTENTS {
+                bad(
+                    "requirements.contents",
+                    format!("at most {MAX_CONTENTS} entries"),
+                );
+            }
+            for c in &q.contents {
+                if !CONTENT_KINDS.contains(&c.kind.as_str()) {
+                    bad(
+                        "requirements.contents",
+                        format!(
+                            "unknown kind {}; known: {}",
+                            c.kind,
+                            CONTENT_KINDS.join(", ")
+                        ),
+                    );
+                }
+                let name = c.name.trim();
+                if name.is_empty() || name.chars().count() > 120 {
+                    bad(
+                        "requirements.contents",
+                        "every entry needs a name of at most 120 characters".into(),
+                    );
+                }
+                if c.size_mb > MAX_CONTENT_MB {
+                    bad(
+                        "requirements.contents",
+                        format!("{name}: size_mb is at most {MAX_CONTENT_MB}"),
+                    );
+                }
+                if c.fetched
+                    .as_deref()
+                    .is_some_and(|f| f != "bundled" && f != "on_first_run")
+                {
+                    bad(
+                        "requirements.contents",
+                        format!("{name}: fetched is bundled or on_first_run"),
+                    );
+                }
+            }
+            if let Some(disk) = q.min_disk_mb {
+                if disk > 4_194_304 {
+                    bad("requirements.min_disk_mb", "must be at most 4194304".into());
+                } else if disk < q.contents_mb() {
+                    bad(
+                        "requirements.min_disk_mb",
+                        format!(
+                            "is below what requirements.contents add up to ({} MB)",
+                            q.contents_mb()
+                        ),
+                    );
                 }
             }
         }
@@ -688,5 +850,75 @@ mod tests {
             "{a}"
         );
         assert_eq!(a, Manifest::from_json(&a).unwrap().canonical_json());
+    }
+
+    #[test]
+    fn requirements_are_checked_and_contents_add_up() {
+        let text = r#"apiVersion: kmplify.app/v1
+id: acme/vision
+version: 1.0.0
+lane: container
+artifact:
+  image: registry.example/acme/vision@sha256:1111111111111111111111111111111111111111111111111111111111111111
+resources:
+  gpu: { min_vram_mb: 8192 }
+entrypoint: { port: 8080 }
+requirements:
+  os: [linux, windows]
+  gpu: [nvidia, amd]
+  min_vram_mb: 8192
+  min_ram_mb: 16384
+  min_disk_mb: 20000
+  min_cpu_threads: 8
+  contents:
+    - { kind: model, name: vision-7b, size_mb: 14000, fetched: on_first_run }
+    - { kind: library, name: torch, size_mb: 2500 }
+"#;
+        let m = Manifest::from_yaml(text).unwrap();
+        assert_eq!(m.validate(), vec![]);
+        assert_eq!(m.requirements.as_ref().unwrap().contents_mb(), 16500);
+
+        let bad = text
+            .replace("min_disk_mb: 20000", "min_disk_mb: 100")
+            .replace(
+                "min_vram_mb: 8192\n  min_ram",
+                "min_vram_mb: 4096\n  min_ram",
+            )
+            .replace("gpu: [nvidia, amd]", "gpu: [nvidia, voodoo]")
+            .replace("kind: library", "kind: magic");
+        let fields: Vec<&str> = Manifest::from_yaml(&bad)
+            .unwrap()
+            .validate()
+            .into_iter()
+            .map(|p| p.field)
+            .collect();
+        for f in [
+            "requirements.gpu",
+            "requirements.min_vram_mb",
+            "requirements.contents",
+            "requirements.min_disk_mb",
+        ] {
+            assert!(fields.contains(&f), "{f} not in {fields:?}");
+        }
+    }
+
+    #[test]
+    fn a_function_needs_no_gpu_and_vram_needs_a_vendor() {
+        let text = "apiVersion: kmplify.app/v1\nid: acme/fn\nversion: 1.0.0\nlane: function\nartifact:\n  wasm: { path: fn.wasm }\nrequirements:\n  gpu: [nvidia]\n";
+        let fields: Vec<&str> = Manifest::from_yaml(text)
+            .unwrap()
+            .validate()
+            .into_iter()
+            .map(|p| p.field)
+            .collect();
+        assert_eq!(fields, vec!["requirements.gpu"]);
+        let text = "apiVersion: kmplify.app/v1\nid: acme/fn\nversion: 1.0.0\nlane: function\nartifact:\n  wasm: { path: fn.wasm }\nrequirements:\n  min_vram_mb: 2048\n";
+        let fields: Vec<&str> = Manifest::from_yaml(text)
+            .unwrap()
+            .validate()
+            .into_iter()
+            .map(|p| p.field)
+            .collect();
+        assert_eq!(fields, vec!["requirements.min_vram_mb"]);
     }
 }

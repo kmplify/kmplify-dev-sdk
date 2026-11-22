@@ -10,6 +10,13 @@ artifact:
 resources:
   cpus: 1
   mem_mb: 512
+requirements:
+  os: [linux]
+  min_ram_mb: 2048
+  min_disk_mb: 600
+  contents:
+    - { kind: image, name: hello-container image, size_mb: 180 }
+    - { kind: model, name: tiny sentiment model, size_mb: 250, fetched: on_first_run }
 isolation: gvisor
 network:
   mode: egress

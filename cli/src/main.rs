@@ -185,6 +185,38 @@ fn run(cli: Cli) -> Result<(), String> {
                     }
                     _ => println!("  network   none"),
                 }
+                if let Some(q) = &manifest.requirements {
+                    if !q.contents.is_empty() {
+                        println!(
+                            "  contents  {} MB in {} item(s)",
+                            q.contents_mb(),
+                            q.contents.len()
+                        );
+                    }
+                    let mut needs = Vec::new();
+                    if !q.os.is_empty() {
+                        needs.push(q.os.join("/"));
+                    }
+                    if !q.gpu.is_empty() {
+                        let vram = q
+                            .min_vram_mb
+                            .map(|v| format!(" with {v} MB VRAM"))
+                            .unwrap_or_default();
+                        needs.push(format!("GPU ({}){vram}", q.gpu.join(", ")));
+                    }
+                    if let Some(r) = q.min_ram_mb {
+                        needs.push(format!("{r} MB RAM"));
+                    }
+                    if let Some(d) = q.min_disk_mb {
+                        needs.push(format!("{d} MB disk"));
+                    }
+                    if let Some(t) = q.min_cpu_threads {
+                        needs.push(format!("{t} CPU threads"));
+                    }
+                    if !needs.is_empty() {
+                        println!("  needs     {}", needs.join(", "));
+                    }
+                }
                 Ok(())
             }
             AppCommand::Sign { path, key, out } => {
