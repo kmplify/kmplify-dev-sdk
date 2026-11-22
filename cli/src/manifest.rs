@@ -21,6 +21,14 @@ pub const FUNCTION_MAX_MEM_MB: u64 = 1024;
 pub const FUNCTION_MAX_RUNTIME_S: u64 = 300;
 /// The marketplace's own ceiling for a listing price (shim `price_cents`).
 pub const MAX_PRICE_CENTS: u64 = 10_000_000;
+/// The publisher handle of KMPLIFY's own first-party apps: the curated
+/// Peer Compute templates (vLLM, ComfyUI, Ollama, Speech, ...). It is
+/// reserved; the marketplace binds it to KMPLIFY's own publisher account and
+/// refuses it to everyone else. Only manifests under this handle may say how
+/// the gateway template really runs them: `isolation: container`,
+/// `network.mode: egress_unrestricted` and `filesystem`. Every other app
+/// keeps gvisor at least and egress only to listed hosts.
+pub const OFFICIAL_HANDLE: &str = "kmplify";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +40,9 @@ pub enum Lane {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Isolation {
+    /// A plain container, no extra sandbox. Official KMPLIFY apps only
+    /// ([`OFFICIAL_HANDLE`]); declared first so it orders below gvisor.
+    Container,
     Wasm,
     Gvisor,
     Microvm,
@@ -42,6 +53,10 @@ pub enum Isolation {
 pub enum NetworkMode {
     None,
     Egress,
+    /// Outbound traffic to any host, a ceiling the node may lower. Official
+    /// KMPLIFY apps only ([`OFFICIAL_HANDLE`]).
+    #[serde(rename = "egress_unrestricted")]
+    EgressUnrestricted,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +165,16 @@ pub struct Network {
     pub allow: Vec<String>,
 }
 
+/// The container's root file system, as the gateway template runs it.
+/// Official KMPLIFY apps only ([`OFFICIAL_HANDLE`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Filesystem {
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tmpfs: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Entrypoint {
@@ -194,6 +219,9 @@ pub struct Manifest {
     pub isolation: Option<Isolation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<Network>,
+    /// Official KMPLIFY apps only: the container's root file system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filesystem: Option<Filesystem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<String>,
     /// Where people can use the app: `desktop`, `web`, `mobile`. Empty means
@@ -264,8 +292,18 @@ impl Manifest {
         })
     }
 
+    /// Whether the id is under the reserved [`OFFICIAL_HANDLE`]. Signing
+    /// under it proves nothing by itself: the marketplace accepts such a
+    /// manifest only from the account that holds the handle.
+    pub fn is_official(&self) -> bool {
+        self.id
+            .split_once('/')
+            .is_some_and(|(h, _)| h == OFFICIAL_HANDLE)
+    }
+
     /// Every rule at once, so a developer fixes a manifest in one pass.
     pub fn validate(&self) -> Vec<Problem> {
+        let official = self.is_official();
         let mut out = Vec::new();
         let mut bad = |field: &'static str, message: String| out.push(Problem { field, message });
 
@@ -363,11 +401,17 @@ impl Manifest {
                         "a container needs artifact.image and no artifact.wasm".into(),
                     ),
                 }
-                if self.isolation.is_some_and(|i| i < Isolation::Gvisor) {
-                    bad(
+                match self.isolation {
+                    Some(Isolation::Container) if official => {}
+                    Some(Isolation::Container) => bad(
+                        "isolation",
+                        format!("third-party containers never run below gvisor; container is for the reserved handle {OFFICIAL_HANDLE} only"),
+                    ),
+                    Some(i) if i < Isolation::Gvisor => bad(
                         "isolation",
                         "third-party containers never run below gvisor".into(),
-                    );
+                    ),
+                    _ => {}
                 }
                 if self.entrypoint.is_none() {
                     bad("entrypoint", "a container needs entrypoint.port".into());
@@ -398,12 +442,46 @@ impl Manifest {
                         "egress needs an explicit list of host:port; there is no allow-all".into(),
                     );
                 }
+                NetworkMode::EgressUnrestricted if !official || self.lane != Lane::Container => {
+                    bad(
+                        "network.mode",
+                        format!("egress_unrestricted is for containers under the reserved handle {OFFICIAL_HANDLE} only; list hosts with egress"),
+                    );
+                }
+                NetworkMode::EgressUnrestricted if !n.allow.is_empty() => {
+                    bad(
+                        "network.allow",
+                        "egress_unrestricted takes no allow list".into(),
+                    );
+                }
                 _ => {}
             }
             for entry in &n.allow {
                 if let Err(why) = check_allow_entry(entry) {
                     bad("network.allow", format!("{entry}: {why}"));
                 }
+            }
+        }
+        if let Some(fs) = &self.filesystem {
+            if !official || self.lane != Lane::Container {
+                bad(
+                    "filesystem",
+                    format!("is for containers under the reserved handle {OFFICIAL_HANDLE} only"),
+                );
+            }
+            for t in &fs.tmpfs {
+                if !t.starts_with('/') || t == "/" {
+                    bad(
+                        "filesystem.tmpfs",
+                        format!("{t}: must be an absolute path other than /"),
+                    );
+                }
+            }
+            if !fs.tmpfs.is_empty() && !fs.read_only {
+                bad(
+                    "filesystem.tmpfs",
+                    "only applies to a read-only root file system".into(),
+                );
             }
         }
         for p in &self.permissions {
@@ -920,5 +998,108 @@ requirements:
             .map(|p| p.field)
             .collect();
         assert_eq!(fields, vec!["requirements.min_vram_mb"]);
+    }
+
+    fn official(isolation: &str, network: &str, filesystem: &str) -> Manifest {
+        Manifest::from_yaml(&format!(
+            "apiVersion: kmplify.app/v1\nid: kmplify/vllm-openai\nversion: 1.0.0\nlane: container\nartifact:\n  image: vllm/vllm-openai@sha256:{}\nentrypoint: {{port: 8000, health: /health}}\nisolation: {isolation}\nnetwork: {network}\n{filesystem}",
+            "a".repeat(64)
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_reserved_handle_may_declare_how_its_template_runs() {
+        let m = official(
+            "container",
+            "{mode: egress_unrestricted}",
+            "filesystem: {read_only: true, tmpfs: [/tmp]}\n",
+        );
+        assert!(m.is_official());
+        assert_eq!(m.validate(), vec![]);
+        let text = m.canonical_json();
+        assert!(text.contains("\"isolation\":\"container\""), "{text}");
+        assert!(text.contains("\"mode\":\"egress_unrestricted\""), "{text}");
+        assert!(
+            text.contains("\"filesystem\":{\"read_only\":true,\"tmpfs\":[\"/tmp\"]}"),
+            "{text}"
+        );
+        // A writable rootfs needs no tmpfs list.
+        assert_eq!(
+            official(
+                "container",
+                "{mode: egress_unrestricted}",
+                "filesystem: {read_only: false}\n"
+            )
+            .validate(),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn nobody_else_gets_the_official_exceptions() {
+        let mut m = container();
+        m.isolation = Some(Isolation::Container);
+        assert!(!m.is_official());
+        assert_eq!(fields(&m), vec!["isolation"]);
+
+        let mut m = container();
+        m.network = Some(Network {
+            mode: NetworkMode::EgressUnrestricted,
+            allow: vec![],
+        });
+        assert_eq!(fields(&m), vec!["network.mode"]);
+
+        let mut m = container();
+        m.filesystem = Some(Filesystem {
+            read_only: true,
+            tmpfs: vec![],
+        });
+        assert_eq!(fields(&m), vec!["filesystem"]);
+
+        // A look-alike handle is not the reserved one.
+        let mut m = container();
+        m.id = "kmplify-apps/vllm".into();
+        m.isolation = Some(Isolation::Container);
+        assert_eq!(fields(&m), vec!["isolation"]);
+    }
+
+    #[test]
+    fn official_apps_still_follow_the_other_rules() {
+        // No allow list with unrestricted egress, tmpfs only on a read-only
+        // rootfs, absolute tmpfs paths, and a function stays a function.
+        let m = official(
+            "container",
+            "{mode: egress_unrestricted, allow: ['api.example.com:443']}",
+            "",
+        );
+        assert_eq!(fields(&m), vec!["network.allow"]);
+        let m = official(
+            "container",
+            "{mode: none}",
+            "filesystem: {read_only: false, tmpfs: [/tmp]}\n",
+        );
+        assert_eq!(fields(&m), vec!["filesystem.tmpfs"]);
+        let m = official(
+            "container",
+            "{mode: none}",
+            "filesystem: {read_only: true, tmpfs: [tmp, /]}\n",
+        );
+        assert_eq!(fields(&m), vec!["filesystem.tmpfs", "filesystem.tmpfs"]);
+        let mut f = function();
+        f.id = "kmplify/hello".into();
+        f.isolation = Some(Isolation::Container);
+        assert!(fields(&f).contains(&"isolation"));
+        let mut f = function();
+        f.id = "kmplify/hello".into();
+        f.network = Some(Network {
+            mode: NetworkMode::EgressUnrestricted,
+            allow: vec![],
+        });
+        assert!(fields(&f).contains(&"network.mode"));
+        // An unpinned image is refused for KMPLIFY as for everyone.
+        let mut m = official("container", "{mode: egress_unrestricted}", "");
+        m.artifact.image = Some("vllm/vllm-openai:latest".into());
+        assert_eq!(fields(&m), vec!["artifact.image"]);
     }
 }

@@ -53,6 +53,10 @@ fn wrong_manifests_fail_both() {
         "apiVersion: kmplify.app/v2\nid: acme/app\nversion: 1.0.0\nlane: function\nartifact: {wasm: {path: a.wasm}}\n".to_string(),
         "apiVersion: kmplify.app/v1\nid: Acme/App\nversion: 1.0.0\nlane: function\nartifact: {wasm: {path: a.wasm}}\n".to_string(),
         format!("{base}lane: function\nartifact: {{wasm: {{path: a.wasm}}, image: 'r.io/acme/app@sha256:{digest}'}}\n"),
+        // The official exceptions belong to the reserved handle kmplify only.
+        format!("{base}lane: container\nartifact: {{image: 'r.io/acme/app@sha256:{digest}'}}\nentrypoint: {{port: 80}}\nisolation: container\n"),
+        format!("{base}lane: container\nartifact: {{image: 'r.io/acme/app@sha256:{digest}'}}\nentrypoint: {{port: 80}}\nnetwork: {{mode: egress_unrestricted}}\n"),
+        format!("{base}lane: container\nartifact: {{image: 'r.io/acme/app@sha256:{digest}'}}\nentrypoint: {{port: 80}}\nfilesystem: {{read_only: true}}\n"),
     ];
     for text in wrong {
         assert!(
@@ -64,4 +68,18 @@ fn wrong_manifests_fail_both() {
             .unwrap_or(false);
         assert!(!rust_ok, "rules accepted:\n{text}");
     }
+}
+
+#[test]
+fn an_official_manifest_passes_both() {
+    let text = format!(
+        "apiVersion: kmplify.app/v1\nid: kmplify/ollama\nversion: 1.0.0\nlane: container\nartifact: {{image: 'ollama/ollama@sha256:{}'}}\nentrypoint: {{port: 11434}}\nisolation: container\nnetwork: {{mode: egress_unrestricted}}\nfilesystem: {{read_only: true, tmpfs: [/tmp]}}\ndata_class: personal\nplatforms: [desktop, web]\npricing: {{model: free}}\n",
+        "a".repeat(64)
+    );
+    let errors: Vec<String> = schema()
+        .iter_errors(&as_json(&text))
+        .map(|e| e.to_string())
+        .collect();
+    assert!(errors.is_empty(), "schema refused:\n{text}\n{errors:?}");
+    assert_eq!(Manifest::from_yaml(&text).unwrap().validate(), vec![]);
 }
