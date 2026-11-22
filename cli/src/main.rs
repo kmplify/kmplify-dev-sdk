@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use kmplify_cli::manifest::{Lane, Manifest, MANIFEST_FILE};
+use kmplify_cli::manifest::{Lane, Manifest, NetworkMode, MANIFEST_FILE};
 use kmplify_cli::scaffold::{self, PLACEHOLDER_DIGEST};
 use kmplify_cli::signing::{self, Envelope, SIGNED_FILE};
 
@@ -180,6 +180,9 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("  lane      {:?}", manifest.lane);
                 println!("  sandbox   {:?}", manifest.effective_isolation());
                 match &manifest.network {
+                    Some(n) if n.mode == NetworkMode::EgressUnrestricted => {
+                        println!("  network   any host (egress_unrestricted, official apps only)")
+                    }
                     Some(n) if !n.allow.is_empty() => {
                         println!("  network   egress to {}", n.allow.join(", "))
                     }
