@@ -43,6 +43,7 @@ pricing: {model: per_run, price_cents: 5}
 | `artifact.wasm.path` | function | the `.wasm` file, relative to the manifest. `kmplify app sign` adds its `sha256` |
 | `artifact.image` | container | `repository@sha256:<digest>`. A tag is refused: a tag can move, a signature must name exact bytes |
 | `resources` | no | what the app asks for. A function: at most 1024 MB, no GPU |
+| `requirements` | no | what a person's own computer needs, and what the app downloads. See [Requirements and size](#requirements-and-size) |
 | `isolation` | no | the weakest sandbox the app accepts. Default `wasm` for a function, `gvisor` for a container. A container can never go below `gvisor` |
 | `network` | no | default: no network. `egress` needs every `host:port` listed |
 | `permissions` | no | platform services the app may use, each limited to the app's own namespace: `dws.kv`, `dws.bucket`, `dws.queue`, `dws.secrets`. Containers only |
@@ -51,6 +52,38 @@ pricing: {model: per_run, price_cents: 5}
 | `entrypoint` | container | the port the app listens on. Reached through the gateway relay, never a public port |
 | `limits` | no | `max_runtime_s` (a function: at most 300), `max_concurrency` |
 | `pricing` | no | `free`, `one_off`, `monthly` or `per_run`, with `price_cents`. The marketplace's normal fee applies |
+
+## Requirements and size
+
+`resources` is what the sandbox is given. `requirements` is what a person's own
+computer must have to use the app, and what the app downloads. The marketplace
+shows both on the listing (download size, GPU, VRAM, RAM, disk), and the apps
+compare them with the device ("fits this device"). Because the manifest is
+signed, people can rely on these numbers.
+
+```yaml
+requirements:
+  os: [linux, windows]          # left out: any
+  gpu: [nvidia, amd]            # vendors it works with; left out: no GPU needed
+  min_vram_mb: 8192
+  min_ram_mb: 16384
+  min_disk_mb: 20000            # at least what contents add up to
+  min_cpu_threads: 8
+  contents:                     # models, datasets, libraries, modules it brings or fetches
+    - { kind: model, name: vision-7b, size_mb: 14000, fetched: on_first_run }
+    - { kind: library, name: torch, size_mb: 2500 }
+```
+
+| Field | Meaning |
+|---|---|
+| `os` | `linux`, `macos`, `windows` |
+| `gpu` | `nvidia`, `amd`, `intel`, `apple`. A function never needs a GPU |
+| `min_vram_mb` | 512 to 393216, and not below `resources.gpu.min_vram_mb`. Needs `gpu` |
+| `min_ram_mb`, `min_disk_mb`, `min_cpu_threads` | the least the computer must have |
+| `contents[]` | `kind` (`model`, `dataset`, `library`, `module`, `weights`, `image`, `other`), `name`, `size_mb`, and `fetched`: `bundled` (default) or `on_first_run`. At most 64 entries |
+
+The download size people see is the artifact plus the sum of `contents`.
+`kmplify app validate` prints both.
 
 ## Network rules
 
