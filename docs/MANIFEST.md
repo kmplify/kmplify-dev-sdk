@@ -25,6 +25,7 @@ network:
   mode: egress                   # none | egress
   allow: [api.example.com:443]
 permissions: [dws.kv, dws.bucket]
+platforms: [desktop, web, mobile] # where people can use it
 data_class: personal             # none | personal | document
 entrypoint: {port: 8080, health: /healthz, ready_timeout_s: 120}
 limits: {max_runtime_s: 900, max_concurrency: 4}
@@ -45,6 +46,7 @@ pricing: {model: per_run, price_cents: 5}
 | `isolation` | no | the weakest sandbox the app accepts. Default `wasm` for a function, `gvisor` for a container. A container can never go below `gvisor` |
 | `network` | no | default: no network. `egress` needs every `host:port` listed |
 | `permissions` | no | platform services the app may use, each limited to the app's own namespace: `dws.kv`, `dws.bucket`, `dws.queue`, `dws.secrets`. Containers only |
+| `platforms` | no | where people can use the app: `desktop` (KMPLIFY Desktop), `web` (the web app), `mobile`. Default: `desktop` and `web`. The marketplace offers the app only for the devices named here, and a person chooses which of them to add it to |
 | `data_class` | no | `none`, `personal` or `document`. Decides which nodes may host the app |
 | `entrypoint` | container | the port the app listens on. Reached through the gateway relay, never a public port |
 | `limits` | no | `max_runtime_s` (a function: at most 300), `max_concurrency` |

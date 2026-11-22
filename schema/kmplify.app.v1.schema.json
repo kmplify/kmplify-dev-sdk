@@ -86,6 +86,13 @@
       "uniqueItems": true,
       "items": { "enum": ["dws.kv", "dws.bucket", "dws.queue", "dws.secrets"] }
     },
+    "platforms": {
+      "description": "Where people can use the app. Left out: desktop and web. The marketplace only offers the app for the devices named here.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["desktop", "mobile", "web"] }
+    },
     "data_class": {
       "description": "What the app processes. Drives placement: `document` only runs on nodes whose operator accepted the provider terms.",
       "enum": ["none", "personal", "document"]
